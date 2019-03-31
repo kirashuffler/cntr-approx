@@ -65,7 +65,6 @@ def line_start(img, start):
     direction = 0
     prev_dir = 0
     while True:
-        prev_dir = direction
         end = True
         dirs = [direction, (direction + 1) % 8, (direction + 7) % 8, (direction + 2) % 8,
                 (direction + 6) % 8, (direction + 3) % 8, (direction + 5) % 8, (direction + 4) % 8]
@@ -79,18 +78,6 @@ def line_start(img, start):
                 x += change_x[direction]
                 break
         if end:
-            direction = prev_dir
-            dirs = [direction, (direction + 1) % 8, (direction + 7) % 8, (direction + 2) % 8,
-                    (direction + 6) % 8, (direction + 3) % 8, (direction + 5) % 8, (direction + 4) % 8]
-
-            for i in dirs:
-                ym = y
-                xm = x
-                ym += 2 * change_y[i]
-                xm += 2 * change_x[i]
-                if img[ym][xm] == 255:
-                    img[ym - change_y[i]][xm - change_x[i]] = 1
-                    break
             return (y, x)
 
 
@@ -134,8 +121,9 @@ def drawCompressed(img, points):
     l = len(points)
     for i in range(l-1):
         cv2.line(img, (points[i][1], points[i][0]), (points[i+1][1], points[i+1][0]), (255,255,255), 1)
-        img[points[i]] = (0, 0, 255)
-
+        img[points[i]] = (0, 255, 0)
+        for j in range(8):
+            img[points[i][0] + change_y[j]][points[i][1] + change_x[j]] = (0, 255, 0)
 
 def vectorCoords(a , b):
     return (abs(a[0] - b[0]), abs(a[1] - b[1]))
@@ -150,6 +138,39 @@ def scalarMultip(a, b):
 
 def distance(a, b):
     return vectorModul(vectorCoords(a,b))
+
+
+def thresholder(a, b, c):
+    side1 = distance(a, b)
+    side2 = distance(b, c)
+    side3 = distance(a, c)
+    p = side1 + side2 + side3
+    p /= 2
+    return (p * (p - side1) * (p - side2) * (p - side3)) / side3 / side3
+
+
+def dominantPointsByHeight(points, thresh):
+    is_close = False
+    start = 1
+    if distance(points[0], points[-1]) == 0:
+        points.pop()
+        is_close = True
+        start = 0
+    length = len(points)
+    base_pts = points
+    pts_cos = []
+    i = start + 1
+    while True:
+        if points[i] == points[-2]:
+            break
+        h = thresholder(points[i - 1], points[i], points[i + 1])
+        print(h)
+        if h < thresh:
+            del base_pts[i]
+            i -= 1
+        i += 1
+    print("compression rate of base to dominant points:", length / len(base_pts))
+    return [base_pts, is_close]
 
 
 def dominantPoints(points, thresh):
@@ -186,36 +207,38 @@ def dominantPoints(points, thresh):
         region_next = len_a_next + len_b_next
         toRemove = False
         if cos_cur > thresh:
-            print("case1")
+            #print("case1")
             toRemove = True
         #elif cos_cur < cos_prev or cos_cur < cos_next:
         #    print("case2")
         #    toRemove = True
         elif cos_cur == cos_prev and region_cur < region_prev:
-            print("case3")
+            #print("case3")
             toRemove = True
         elif cos_cur == cos_next and region_cur < region_next:
-            print("case4")
+            #print("case4")
             toRemove = True
         elif cos_cur == cos_next and region_cur == region_next:
-            print("case5")
+            #print("case5")
             toRemove = True
         if toRemove:
             del base_pts[i]
             i -= 1
         i += 1
-    print("compression rate:", length / len(base_pts))
-    return base_pts
+    print("compression rate of base to dominant points:", length / len(base_pts))
+    return [base_pts, is_close]
+
 
 def sortsecond(val):
     return val[1]
 
 
-img = cv2.imread("x.png", 0)
+img = cv2.imread("star.bmp", 0)
 blur = cv2.GaussianBlur(img,(5,5),0)
 edges = cv2.Canny(blur, 0, 100)
 color = [0, 0, 0]
 edges = cv2.copyMakeBorder(edges, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=color)
+#edges = cv2.imread("x.png", 0)
 h, w = edges.shape
 cv2.imwrite('edges.png', edges)
 cntr = fetch_all(edges, 0)
@@ -223,8 +246,7 @@ cntr = fetch_all(edges, 0)
 img = np.zeros((h, w, 3), np.uint8)
 drawCompressed(img, cntr[0])
 cv2.imwrite('extracted.png', img)
-dominant_pts = dominantPoints(cntr[0], 1)
-
+[dominant_pts, is_closed] = dominantPointsByHeight(cntr[0], 0.19)
 img = np.zeros((h, w, 3), np.uint8)
 drawCompressed(img, dominant_pts)
 cv2.imwrite('dominant.png', img)
@@ -239,8 +261,9 @@ x -= min(x)
 
 # fit splines to x=f(u) and y=g(u), treating both as periodic. also note that s=0
 # is needed in order to force the spline fit to pass through all the input points.
-tck, u = sc.splprep([x, y])
-print(tck[0])
+tck, u = sc.splprep([x, y], per=is_closed)
+print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
+#print(tck[0])
 # evaluate the spline fits for 1000 evenly spaced distance values
 xi, yi = sc.splev(np.linspace(0, 1, 1000), tck)
 
