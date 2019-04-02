@@ -121,9 +121,14 @@ def drawCompressed(img, points):
     l = len(points)
     for i in range(l-1):
         cv2.line(img, (points[i][1], points[i][0]), (points[i+1][1], points[i+1][0]), (255,255,255), 1)
-        img[points[i]] = (0, 255, 0)
-        for j in range(8):
-            img[points[i][0] + change_y[j]][points[i][1] + change_x[j]] = (0, 255, 0)
+
+def drawCompare(img, points):
+    l = len(points)
+    for i in range(l-1):
+        cv2.line(img, (points[i][1], points[i][0]), (points[i+1][1], points[i+1][0]), (255,255,0), 1)
+        for j in [0, 2, 4, 6]:
+            img[points[i][0] + change_y[j]][points[i][1] + change_x[j]] = np.array([0, 255, 0], dtype=int)
+            img[points[i][0] + 2*change_y[j]][points[i][1] + 2*change_x[j]] = np.array([0, 255, 0], dtype=int)
 
 def vectorCoords(a , b):
     return (abs(a[0] - b[0]), abs(a[1] - b[1]))
@@ -232,8 +237,47 @@ def dominantPoints(points, thresh):
 def sortsecond(val):
     return val[1]
 
+def pts_sort(pts):
+    base_pts = pts.copy()
+    base_pts.sort(key=sortsecond)
+    print(base_pts)
+    prev = base_pts[0][1]
+    new_base_pts = []
+    new_base_pts.append([base_pts[0][1], [base_pts[0][0]]])
+    for i in range(1, len(base_pts)):
+        if prev == base_pts[i][1]:
+            new_base_pts[-1][1].append(base_pts[i][0])
+        else:
+            new_base_pts.append([base_pts[i][1], [base_pts[i][0]]])
+        prev = base_pts[i][1]
+    for pts in new_base_pts:
+        pts[1].sort()
+    print(new_base_pts)
+    return new_base_pts
 
-img = cv2.imread("star.bmp", 0)
+
+def cntr_distance(img, h, pts):
+    raw_pts = []
+    sum = 0
+    for elem in pts:
+        x = elem[0]
+        raw_pts.append([x,[]])
+        for y in range(1, h-1):
+            if img[y][x][0] > 0 and (img[y-1][x][1] == 0 or img[y+1][x][1] == 0):
+                raw_pts[-1][1].append(y)
+    for i in range(len(pts)):
+        standart = pts[i][1]
+        approx = raw_pts[i][1]
+        #for j in range(len(pts[i][1])):
+        #    print(pts[i][1][j])
+        #    sum += (pts[i][1][j] - raw_pts[i][1][j]) * (pts[i][1][j] - raw_pts[i][1][j])
+    sum /= len(pts)
+    sum = math.sqrt(sum)
+    return sum
+
+
+
+img = cv2.imread("x.png", 0)
 blur = cv2.GaussianBlur(img,(5,5),0)
 edges = cv2.Canny(blur, 0, 100)
 color = [0, 0, 0]
@@ -243,13 +287,21 @@ h, w = edges.shape
 cv2.imwrite('edges.png', edges)
 cntr = fetch_all(edges, 0)
 
+sorted_pts = pts_sort(cntr[0])
+
 img = np.zeros((h, w, 3), np.uint8)
 drawCompressed(img, cntr[0])
 cv2.imwrite('extracted.png', img)
-[dominant_pts, is_closed] = dominantPointsByHeight(cntr[0], 0.19)
-img = np.zeros((h, w, 3), np.uint8)
-drawCompressed(img, dominant_pts)
-cv2.imwrite('dominant.png', img)
+
+[dominant_pts, is_closed] = dominantPointsByHeight(cntr[0], 0.4)
+
+#img = np.zeros((h, w, 3), np.uint8)
+drawCompare(img, dominant_pts)
+img = cv2.bitwise_not(img)
+cv2.imwrite('compare.png', img)
+
+cntr_dist = cntr_distance(img, h, sorted_pts)
+print(cntr_dist)
 dominant_pts = list(dominant_pts)
 dominant_pts = np.asarray(dominant_pts)
 
@@ -260,7 +312,8 @@ x -= min(x)
 
 
 # fit splines to x=f(u) and y=g(u), treating both as periodic. also note that s=0
-# is needed in order to force the spline fit to pass through all the input points.
+# is neede
+# d in order to force the spline fit to pass through all the input points.
 tck, u = sc.splprep([x, y], per=is_closed)
 print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
 #print(tck[0])
