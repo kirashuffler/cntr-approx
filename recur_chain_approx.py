@@ -12,7 +12,8 @@ change_y = np.array([-1, -1, -1, 0, 1, 1, 1, 0])
 sys.setrecursionlimit(1500)
 
 
-def scanBorder_recc(img, start, prev_dir, points):
+def scan_border_recc(img, start, prev_dir, points, cntr_len):
+    cntr_len[0] += 1
     dirs = [prev_dir, (prev_dir + 1) % 8, (prev_dir + 7) % 8, (prev_dir + 2) % 8,
                    (prev_dir + 6) % 8, (prev_dir + 3) % 8, (prev_dir + 5) % 8]
     y = start[0]
@@ -36,11 +37,13 @@ def scanBorder_recc(img, start, prev_dir, points):
 
     y += change_y[direction]
     x += change_x[direction]
-    scanBorder_recc(img, [y, x], direction, points)
+    scan_border_recc(img, [y, x], direction, points, cntr_len)
 
 
-def scanBorder(img, start):
+def scan_border(img, start):
     ls = line_start(img, start)
+    cntr_len = []
+    cntr_len.append(1)
     points = []
     points.append(ls)
     y = ls[0]
@@ -54,9 +57,11 @@ def scanBorder(img, start):
         return None
     y += change_y[direction]
     x += change_x[direction]
-    scanBorder_recc(img, [y, x], direction, points)
+
+    scan_border_recc(img, [y, x], direction, points, cntr_len)
     img[y][x] = 0
-    return points
+
+    return points, cntr_len[0]
 
 
 def line_start(img, start):
@@ -99,50 +104,31 @@ def fetch_all(img, threshold):
         for i in range(w):
             if img[j][i] == 255:
                 start_pt = [j, i]
-                result = scanBorder(img, start_pt)
+                result = scan_border(img, start_pt)
                 #print(start_pt)
-                if result == None or len(result[0]) < threshold:
+                if result == None or len(result[0][0]) < threshold:
                     continue
                 contours.append(result)
-    contours.sort(key=sortByLength)
+    contours.sort(key=sort_bylength)
     return contours
 
 
-def sortByLength(inputChain):
-    return len(inputChain[0])
+def sort_bylength(inputChain):
+    return len(inputChain[0][0])
 
-
-def drawPoints(img, points):
-    for point in points:
-        img[point[0]][point[1]] = 255
-
-
-def drawCompressed(img, points):
-    l = len(points)
-    for i in range(l-1):
-        cv2.line(img, (points[i][1], points[i][0]), (points[i+1][1], points[i+1][0]), (255,255,255), 1)
-
-def drawCompare(img, points):
-    l = len(points)
-    for i in range(l-1):
-        cv2.line(img, (points[i][1], points[i][0]), (points[i+1][1], points[i+1][0]), (255,255,0), 1)
-        for j in [0, 2, 4, 6]:
-            img[points[i][0] + change_y[j]][points[i][1] + change_x[j]] = np.array([0, 255, 0], dtype=int)
-            img[points[i][0] + 2*change_y[j]][points[i][1] + 2*change_x[j]] = np.array([0, 255, 0], dtype=int)
-
-def vectorCoords(a , b):
+def vector_coords(a, b):
     return (abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
-def vectorModul(a):
+def vector_modul(a):
     return math.sqrt(a[0]*a[0] + a[1]*a[1])
 
 
-def scalarMultip(a, b):
+def scalar_multip(a, b):
     return a[0] * b[0] + a[1] * b[1]
 
 def distance(a, b):
-    return vectorModul(vectorCoords(a,b))
+    return vector_modul(vector_coords(a, b))
 
 
 def thresholder(a, b, c):
@@ -154,31 +140,28 @@ def thresholder(a, b, c):
     return (p * (p - side1) * (p - side2) * (p - side3)) / side3 / side3
 
 
-def dominantPointsByHeight(points, thresh):
+def dominant_points_triangle(points, thresh):
     is_close = False
     start = 1
-    if distance(points[0], points[-1]) == 0:
-        points.pop()
+    base_pts = points.copy()
+    if distance(base_pts[0], base_pts[-1]) == 0:
+        base_pts.pop()
         is_close = True
         start = 0
-    length = len(points)
-    base_pts = points
-    pts_cos = []
+
     i = start + 1
     while True:
-        if points[i] == points[-2]:
+        if base_pts[i] == base_pts[-2]:
             break
-        h = thresholder(points[i - 1], points[i], points[i + 1])
-        print(h)
+        h = thresholder(base_pts[i - 1], base_pts[i], base_pts[i + 1])
         if h < thresh:
             del base_pts[i]
             i -= 1
         i += 1
-    print("compression rate of base to dominant points:", length / len(base_pts))
     return [base_pts, is_close]
 
 
-def dominantPoints(points, thresh):
+def dominant_points(points, thresh):
     is_close = False
     start = 1
     if distance(points[0], points[-1]) == 0:
@@ -192,89 +175,103 @@ def dominantPoints(points, thresh):
     while True:
         if points[i] == points[-2]:
             break
-        a_cur = vectorCoords(points[i+1], points[i])
-        b_cur = vectorCoords(points[i-1], points[i])
-        a_prev = vectorCoords(points[i + 1 - 1], points[i - 1])
-        b_prev = vectorCoords(points[i - 1 - 1], points[i - 1])
-        a_next = vectorCoords(points[i + 1 + 1], points[i + 1])
-        b_next = vectorCoords(points[i - 1 + 1], points[i + 1])
-        len_a_cur = vectorModul(a_cur)
-        len_b_cur = vectorModul(b_cur)
-        len_a_prev = vectorModul(a_prev)
-        len_b_prev = vectorModul(b_prev)
-        len_a_next = vectorModul(a_next)
-        len_b_next = vectorModul(b_next)
-        cos_cur = scalarMultip(a_cur, b_cur) / (len_a_cur * len_b_cur)
-        cos_prev = scalarMultip(a_prev, b_prev) / (len_a_prev * len_b_prev)
-        cos_next = scalarMultip(a_next, b_next) / (len_a_next * len_b_next)
+        a_cur = vector_coords(points[i + 1], points[i])
+        b_cur = vector_coords(points[i - 1], points[i])
+        a_prev = vector_coords(points[i + 1 - 1], points[i - 1])
+        b_prev = vector_coords(points[i - 1 - 1], points[i - 1])
+        a_next = vector_coords(points[i + 1 + 1], points[i + 1])
+        b_next = vector_coords(points[i - 1 + 1], points[i + 1])
+        len_a_cur = vector_modul(a_cur)
+        len_b_cur = vector_modul(b_cur)
+        len_a_prev = vector_modul(a_prev)
+        len_b_prev = vector_modul(b_prev)
+        len_a_next = vector_modul(a_next)
+        len_b_next = vector_modul(b_next)
+        cos_cur = scalar_multip(a_cur, b_cur) / (len_a_cur * len_b_cur)
+        cos_prev = scalar_multip(a_prev, b_prev) / (len_a_prev * len_b_prev)
+        cos_next = scalar_multip(a_next, b_next) / (len_a_next * len_b_next)
         region_cur = len_a_cur + len_b_cur
         region_prev = len_a_prev + len_a_prev
         region_next = len_a_next + len_b_next
         toRemove = False
         if cos_cur > thresh:
-            #print("case1")
+
             toRemove = True
-        #elif cos_cur < cos_prev or cos_cur < cos_next:
-        #    print("case2")
-        #    toRemove = True
         elif cos_cur == cos_prev and region_cur < region_prev:
-            #print("case3")
             toRemove = True
         elif cos_cur == cos_next and region_cur < region_next:
-            #print("case4")
             toRemove = True
         elif cos_cur == cos_next and region_cur == region_next:
-            #print("case5")
             toRemove = True
         if toRemove:
             del base_pts[i]
             i -= 1
         i += 1
-    print("compression rate of base to dominant points:", length / len(base_pts))
     return [base_pts, is_close]
 
 
-def sortsecond(val):
+def sort_second(val):
     return val[1]
 
-def pts_sort(pts):
-    base_pts = pts.copy()
-    base_pts.sort(key=sortsecond)
-    print(base_pts)
-    prev = base_pts[0][1]
-    new_base_pts = []
-    new_base_pts.append([base_pts[0][1], [base_pts[0][0]]])
-    for i in range(1, len(base_pts)):
-        if prev == base_pts[i][1]:
-            new_base_pts[-1][1].append(base_pts[i][0])
-        else:
-            new_base_pts.append([base_pts[i][1], [base_pts[i][0]]])
-        prev = base_pts[i][1]
-    for pts in new_base_pts:
-        pts[1].sort()
-    print(new_base_pts)
-    return new_base_pts
+
+def spline_approx(cntr, th_triangle, degree_th):
+    [dominant_pts, is_closed] = dominant_points_triangle(cntr[0], th_triangle)
+    dominant_pts = list(dominant_pts)
+    dominant_pts = np.asarray(dominant_pts)
+    y = dominant_pts[:, 0]
+    x = dominant_pts[:, 1]
+    original = np.asarray(cntr[0])
+    original_y = original[:, 0]
+    original_x = original[:, 1]
+    # fit splines to x=f(u) and y=g(u), treating both as periodic. also note that s=0
+    # is needed in order to force the spline fit to pass through all the input points.
+    degree = 3
+    relation = len(x) / cntr[1]
+    print(relation)
+    if (relation) < degree_th:
+        degree = 1
+    tck, u = sc.splprep([x, y], per=is_closed, k=degree)
+    print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
+    # evaluate the spline fits for 1000 evenly spaced distance values
+    xi, yi = sc.splev(np.linspace(0, 1, len(original_x)), tck)
+    xi_indices = []
+    indices = []
+    length = len(original_x)
+    tmp = xi.copy()
 
 
-def cntr_distance(img, h, pts):
-    raw_pts = []
-    sum = 0
-    for elem in pts:
-        x = elem[0]
-        raw_pts.append([x,[]])
-        for y in range(1, h-1):
-            if img[y][x][0] > 0 and (img[y-1][x][1] == 0 or img[y+1][x][1] == 0):
-                raw_pts[-1][1].append(y)
-    for i in range(len(pts)):
-        standart = pts[i][1]
-        approx = raw_pts[i][1]
-        #for j in range(len(pts[i][1])):
-        #    print(pts[i][1][j])
-        #    sum += (pts[i][1][j] - raw_pts[i][1][j]) * (pts[i][1][j] - raw_pts[i][1][j])
-    sum /= len(pts)
-    sum = math.sqrt(sum)
-    return sum
+    for i in range(length):
+        for j in range(length):
 
+            if abs(tmp[j]-original_x[i]) < 0.5:
+                indices.append(i)
+                xi_indices.append(j)
+                tmp[j] = 0
+                break
+    for i in range(length):
+        print([original_x[i], tmp[i], abs(original_x[i] - tmp[i])])
+    s = 0
+    for i in range(len(indices)):
+        value = abs(original_y[indices[i]] - yi[xi_indices[i]])
+        print(value)
+        s += value * value
+    s = math.sqrt(s)
+    s /= len(indices)
+    print("error:", s)
+    # plot the result
+    #fig, ax = plt.subplots(1, 1)
+    plt.ylim(0, h)
+    plt.xlim(0, w)
+    plt.scatter(x, y, marker='x',color='black', label=('Доминантные точки'+'(thresh='+str(th_triangle)+')'))
+    plt.plot(original_x, original_y, color='green', label=('Изначальный контур'))
+    # ax.plot(tck[1][0], tck[1][1], "-or")
+    plt.plot(xi, yi,linestyle='--', color='purple', label=('B-сплайн степени '+str(degree)+'(thresh=')+str(degree_th)+')')
+    plt.legend()
+    plt.gca().invert_yaxis()
+    plt.savefig('cntr_'+str(th_triangle)+'_'+str(degree_th)+'.png')
+    plt.show()
+
+    return tck
 
 
 img = cv2.imread("x.png", 0)
@@ -285,44 +282,7 @@ edges = cv2.copyMakeBorder(edges, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=color)
 #edges = cv2.imread("x.png", 0)
 h, w = edges.shape
 cv2.imwrite('edges.png', edges)
-cntr = fetch_all(edges, 0)
-
-sorted_pts = pts_sort(cntr[0])
-
-img = np.zeros((h, w, 3), np.uint8)
-drawCompressed(img, cntr[0])
-cv2.imwrite('extracted.png', img)
-
-[dominant_pts, is_closed] = dominantPointsByHeight(cntr[0], 0.4)
-
-#img = np.zeros((h, w, 3), np.uint8)
-drawCompare(img, dominant_pts)
-img = cv2.bitwise_not(img)
-cv2.imwrite('compare.png', img)
-
-cntr_dist = cntr_distance(img, h, sorted_pts)
-print(cntr_dist)
-dominant_pts = list(dominant_pts)
-dominant_pts = np.asarray(dominant_pts)
-
-y = dominant_pts[:, 0]
-x = dominant_pts[:, 1]
-y -= min(y)
-x -= min(x)
+cntr = fetch_all(edges, 2)
+spline_approx(cntr[0], 0.6, 0.028)
 
 
-# fit splines to x=f(u) and y=g(u), treating both as periodic. also note that s=0
-# is neede
-# d in order to force the spline fit to pass through all the input points.
-tck, u = sc.splprep([x, y], per=is_closed)
-print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
-#print(tck[0])
-# evaluate the spline fits for 1000 evenly spaced distance values
-xi, yi = sc.splev(np.linspace(0, 1, 1000), tck)
-
-# plot the result
-fig, ax = plt.subplots(1, 1)
-ax.plot(x, y, 'or')
-ax.plot(xi, yi, '-b')
-plt.gca().invert_yaxis()
-plt.show()
