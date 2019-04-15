@@ -227,10 +227,15 @@ def spline_approx(cntr, th_triangle, degree_th):
     # is needed in order to force the spline fit to pass through all the input points.
     degree = 3
     relation = len(x) / cntr[1]
-    print(relation)
+    print("total cntr length compression: ", relation)
     if (relation) < degree_th:
         degree = 1
     tck, u = sc.splprep([x, y], per=is_closed, k=degree)
+    print("knots:", tck[0])
+    print("coeffs:", tck[1])
+    print("number of pts: ", len(x))
+    print("number of knots: ", len(tck[0]))
+    print("number of koeffs: ", len(tck[1][0]))
     print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
     # evaluate the spline fits for 1000 evenly spaced distance values
     xi, yi = sc.splev(np.linspace(0, 1, len(original_x)), tck)
@@ -239,25 +244,6 @@ def spline_approx(cntr, th_triangle, degree_th):
     length = len(original_x)
     tmp = xi.copy()
 
-
-    for i in range(length):
-        for j in range(length):
-
-            if abs(tmp[j]-original_x[i]) < 0.5:
-                indices.append(i)
-                xi_indices.append(j)
-                tmp[j] = 0
-                break
-    for i in range(length):
-        print([original_x[i], tmp[i], abs(original_x[i] - tmp[i])])
-    s = 0
-    for i in range(len(indices)):
-        value = abs(original_y[indices[i]] - yi[xi_indices[i]])
-        print(value)
-        s += value * value
-    s = math.sqrt(s)
-    s /= len(indices)
-    print("error:", s)
     # plot the result
     #fig, ax = plt.subplots(1, 1)
     plt.ylim(0, h)
@@ -270,7 +256,6 @@ def spline_approx(cntr, th_triangle, degree_th):
     plt.gca().invert_yaxis()
     plt.savefig('cntr_'+str(th_triangle)+'_'+str(degree_th)+'.png')
     plt.show()
-
     return tck
 
 
@@ -283,6 +268,6 @@ edges = cv2.copyMakeBorder(edges, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=color)
 h, w = edges.shape
 cv2.imwrite('edges.png', edges)
 cntr = fetch_all(edges, 2)
-spline_approx(cntr[0], 0.6, 0.028)
+spline_approx(cntr[0], 0.1, 0.01)
 
 
