@@ -6,6 +6,7 @@ import sys
 import math
 import matplotlib.pyplot as plt
 import scipy.interpolate as sc
+from copy import deepcopy
 
 change_x = np.array([-1, 0, 1, 1, 1, 0, -1, -1])
 change_y = np.array([-1, -1, -1, 0, 1, 1, 1, 0])
@@ -231,32 +232,99 @@ def spline_approx(cntr, th_triangle, degree_th):
     if (relation) < degree_th:
         degree = 1
     tck, u = sc.splprep([x, y], per=is_closed, k=degree)
-    print("knots:", tck[0])
-    print("coeffs:", tck[1])
-    print("number of pts: ", len(x))
-    print("number of knots: ", len(tck[0]))
-    print("number of koeffs: ", len(tck[1][0]))
-    print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
+    #tck_copy = deepcopy(tck)
+    knots = sc.splev(tck[0], tck)
+    test_pt = dominant_pts[10]
+    index = knots_interval(knots, test_pt)
+    start = index - 3
+    end = start + 3
+    #tck_modify(tck_copy, start, end)
+    #print("knots:", knots)
+    #print("coeffs:", tck[1])
+    #print("number of pts: ", len(x))
+    #print("number of knots: ", len(tck[0]))
+    #print("number of koeffs: ", len(tck[1][0]))
+    #print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
     # evaluate the spline fits for 1000 evenly spaced distance values
     xi, yi = sc.splev(np.linspace(0, 1, len(original_x)), tck)
-    xi_indices = []
-    indices = []
-    length = len(original_x)
-    tmp = xi.copy()
-
-    # plot the result
-    #fig, ax = plt.subplots(1, 1)
+    #_, [ex, ey] = sc.splev(np.linspace(tck[0][start+3], tck[0][end+1], 20), tck_copy)
+    ex, ey = slice_of_spline(tck, start)
     plt.ylim(0, h)
     plt.xlim(0, w)
-    plt.scatter(x, y, marker='x',color='black', label=('Доминантные точки'+'(thresh='+str(th_triangle)+')'))
+    plt.scatter(knots[0], knots[1], marker='x',color='red', label=('knots'))
+    plt.scatter(test_pt[1], test_pt[0], marker='x', color='black', label=('test_pt'))
+    #plt.scatter(x, y, marker='*',color='black', label=('Доминантные точки'+'(thresh='+str(th_triangle)+')'))
     plt.plot(original_x, original_y, color='green', label=('Изначальный контур'))
     # ax.plot(tck[1][0], tck[1][1], "-or")
     plt.plot(xi, yi,linestyle='--', color='purple', label=('B-сплайн степени '+str(degree)+'(thresh=')+str(degree_th)+')')
+    plt.plot(ex, ey, color='red', label=('part'))
     plt.legend()
     plt.gca().invert_yaxis()
     plt.savefig('cntr_'+str(th_triangle)+'_'+str(degree_th)+'.png')
     plt.show()
     return tck
+
+
+def tck_modify(tck, start, end):
+    koefs = tck[1].copy()
+
+    length = len(koefs[0])
+    s = 0
+    e = length
+    for i in range(s, start):
+        koefs[0][i] = koefs[1][i] = 0
+    for i in range(end+1, e):
+        koefs[0][i] = koefs[1][i] = 0
+    tck[1][1] = koefs
+
+
+def knots_interval(knots, point):
+    L = len(knots[0])
+    x_k = knots[0]
+    y_k = knots[1]
+    x = point[1]
+    y = point[0]
+    for i in range(3, L-1):
+        left_x = x_k[i]
+        right_x = x_k[i + 1]
+        left_y = y_k[i]
+        right_y = y_k[i + 1]
+        x_in = in_interval(x, left_x, right_x)
+        y_in = in_interval(y, left_y, right_y)
+        if x_in and y_in:
+            return i
+    return 0
+
+
+def in_interval(val, left, right):
+    return (left - 5 <= val < right + 5 or left + 5 >= val >= right - 5)
+
+
+def slice_of_spline(tck, start):
+    Kx = tck[1][0]
+    Ky = tck[1][1]
+    knots = tck[0]
+    l = start + 3
+    arr = np.linspace(knots[l],knots[l+1], 20)
+    print(l)
+    res_x = []
+    res_y = []
+    for point in arr:
+        buff_x = [0] * (3 + 1)
+        buff_y = [0] * (3 + 1)
+        for i in range(3 + 1):
+            buff_x[i] = Kx[i + l - 3]
+            buff_y[i] = Ky[i + l - 3]
+        for j in range(1, 3 + 1):
+            for i in reversed(range(l - 3 + j, l + 1)):
+                alpha = (point - knots[i]) / (knots[i + 1 + 3 - j] - knots[i])
+                buff_x[i - l + 3] = alpha * buff_x[i - l + 3] + (1 - alpha) * buff_x[i - 1 - l + 3]
+                buff_y[i - l + 3] = alpha * buff_y[i - l + 3] + (1 - alpha) * buff_y[i - 1 - l + 3]
+        res_x.append(buff_x[3])
+        res_y.append(buff_y[3])
+    return res_x, res_y
+
+
 
 
 img = cv2.imread("x.png", 0)
@@ -268,6 +336,6 @@ edges = cv2.copyMakeBorder(edges, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=color)
 h, w = edges.shape
 cv2.imwrite('edges.png', edges)
 cntr = fetch_all(edges, 2)
-spline_approx(cntr[0], 0.1, 0.01)
+spline_approx(cntr[0], 0.4, 0.01)
 
 
