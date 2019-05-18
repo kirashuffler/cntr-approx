@@ -13,8 +13,7 @@ change_y = np.array([-1, -1, -1, 0, 1, 1, 1, 0])
 sys.setrecursionlimit(1500)
 
 
-def scan_border_recc(img, start, prev_dir, points, cntr_len):
-    cntr_len[0] += 1
+def scan_border_recc(img, start, prev_dir, points, indices):
     dirs = [prev_dir, (prev_dir + 1) % 8, (prev_dir + 7) % 8, (prev_dir + 2) % 8,
                    (prev_dir + 6) % 8, (prev_dir + 3) % 8, (prev_dir + 5) % 8]
     y = start[0]
@@ -25,8 +24,9 @@ def scan_border_recc(img, start, prev_dir, points, cntr_len):
         if next_pt_value:
             img[y][x] = 0
             direction = i
+            points.append((y, x))
             if direction != prev_dir:
-                points.append((y, x))
+                indices.append(len(points) - 1)
             break
         #elif next_pt_value == 1:
         #    img[y][x] = 0
@@ -38,13 +38,12 @@ def scan_border_recc(img, start, prev_dir, points, cntr_len):
 
     y += change_y[direction]
     x += change_x[direction]
-    scan_border_recc(img, [y, x], direction, points, cntr_len)
+    scan_border_recc(img, [y, x], direction, points, indices)
 
 
 def scan_border(img, start):
     ls = line_start(img, start)
-    cntr_len = []
-    cntr_len.append(1)
+    indices = []
     points = []
     points.append(ls)
     y = ls[0]
@@ -59,11 +58,16 @@ def scan_border(img, start):
     y += change_y[direction]
     x += change_x[direction]
 
-    scan_border_recc(img, [y, x], direction, points, cntr_len)
+    scan_border_recc(img, [y, x], direction, points, indices)
     img[y][x] = 0
 
-    return points, cntr_len[0]
+    return points, indices
 
+def get_compressed(cntr):
+    res = []
+    for i in cntr[1]:
+        res.append(cntr[0][i])
+    return res
 
 def line_start(img, start):
     y = start[0]
@@ -141,6 +145,7 @@ def thresholder(a, b, c):
     return (p * (p - side1) * (p - side2) * (p - side3)) / side3 / side3
 
 
+
 def dominant_points_triangle(points, thresh):
     is_close = False
     start = 1
@@ -216,7 +221,8 @@ def sort_second(val):
 
 
 def spline_approx(cntr, th_triangle, degree_th):
-    [dominant_pts, is_closed] = dominant_points_triangle(cntr[0], th_triangle)
+    compressed_cntr = get_compressed(cntr)
+    [dominant_pts, is_closed] = dominant_points_triangle(compressed_cntr, th_triangle)
     dominant_pts = list(dominant_pts)
     dominant_pts = np.asarray(dominant_pts)
     y = dominant_pts[:, 0]
@@ -227,37 +233,31 @@ def spline_approx(cntr, th_triangle, degree_th):
     # fit splines to x=f(u) and y=g(u), treating both as periodic. also note that s=0
     # is needed in order to force the spline fit to pass through all the input points.
     degree = 3
-    relation = len(x) / cntr[1]
+    relation = len(x) / len(cntr[0])
     print("total cntr length compression: ", relation)
     if (relation) < degree_th:
         degree = 1
     tck, u = sc.splprep([x, y], per=is_closed, k=degree)
     #tck_copy = deepcopy(tck)
     knots = sc.splev(tck[0], tck)
-    test_pt = dominant_pts[10]
-    index = knots_interval(knots, test_pt)
-    start = index - 3
-    end = start + 3
-    #tck_modify(tck_copy, start, end)
-    #print("knots:", knots)
-    #print("coeffs:", tck[1])
-    #print("number of pts: ", len(x))
-    #print("number of knots: ", len(tck[0]))
-    #print("number of koeffs: ", len(tck[1][0]))
+    index = knots_interval(cntr[0][80], tck)
+    mse = MSE(cntr[0], tck)
+    print("MSE:", mse)
     #print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
     # evaluate the spline fits for 1000 evenly spaced distance values
     xi, yi = sc.splev(np.linspace(0, 1, len(original_x)), tck)
     #_, [ex, ey] = sc.splev(np.linspace(tck[0][start+3], tck[0][end+1], 20), tck_copy)
-    ex, ey = slice_of_spline(tck, start)
+    #ex, ey = slice_of_spline(tck, start)
     plt.ylim(0, h)
     plt.xlim(0, w)
     plt.scatter(knots[0], knots[1], marker='x',color='red', label=('knots'))
-    plt.scatter(test_pt[1], test_pt[0], marker='x', color='black', label=('test_pt'))
+    #plt.scatter(test_pt[1], test_pt[0], marker='x', color='black', label=('test_pt'))
     #plt.scatter(x, y, marker='*',color='black', label=('Доминантные точки'+'(thresh='+str(th_triangle)+')'))
+    plt.plot(tck[1][0], tck[1][1], color='black')
     plt.plot(original_x, original_y, color='green', label=('Изначальный контур'))
     # ax.plot(tck[1][0], tck[1][1], "-or")
     plt.plot(xi, yi,linestyle='--', color='purple', label=('B-сплайн степени '+str(degree)+'(thresh=')+str(degree_th)+')')
-    plt.plot(ex, ey, color='red', label=('part'))
+    #plt.plot(ex, ey, color='red', label=('part'))
     plt.legend()
     plt.gca().invert_yaxis()
     plt.savefig('cntr_'+str(th_triangle)+'_'+str(degree_th)+'.png')
@@ -265,46 +265,52 @@ def spline_approx(cntr, th_triangle, degree_th):
     return tck
 
 
-def tck_modify(tck, start, end):
-    koefs = tck[1].copy()
+def knots_interval(point, tck):
+    knots = sc.splev(tck[0], tck)
+    l = len(knots[0])
+    index = 0
+    min = 200
+    pt = [point[1], point[0]]
+    pt = np.asarray(pt)
+    for i in range(3, l-4):
+        p0 = np.asarray([knots[0][i], knots[1][i]])
+        p1 = np.asarray([knots[0][i+1], knots[1][i+1]])
+        d0 = np.linalg.norm(np.cross(p1 - p0, p0 - pt)) / np.linalg.norm(p1 - p0)
+        dist = d0
+        vect0 = p1 - pt
+        vect1 = p0 - pt
+        angle = angle_between(vect0, vect1)
+        #print(angle)
+        if (dist <= min and angle > 0.43) or vector_modul(vect0) <= 3 or vector_modul(vect1) <= 3:
+            index = i
+            min = dist
+    #print(pt)
+    #print(min)
+    #print([knots[0][index], knots[1][index]])
+    #plt.plot([knots[0][index], pt[0], knots[0][index+1],knots[0][index]], [knots[1][index], pt[1], knots[1][index+1],knots[1][index]])
+    return index
 
-    length = len(koefs[0])
-    s = 0
-    e = length
-    for i in range(s, start):
-        koefs[0][i] = koefs[1][i] = 0
-    for i in range(end+1, e):
-        koefs[0][i] = koefs[1][i] = 0
-    tck[1][1] = koefs
+def unit_vector(vector):
+    """ Returns the unit vector of the vector.  """
+    return vector / np.linalg.norm(vector)
+
+def angle_between(v1, v2):
+    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+    """
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 
-def knots_interval(knots, point):
-    L = len(knots[0])
-    x_k = knots[0]
-    y_k = knots[1]
-    x = point[1]
-    y = point[0]
-    for i in range(3, L-1):
-        left_x = x_k[i]
-        right_x = x_k[i + 1]
-        left_y = y_k[i]
-        right_y = y_k[i + 1]
-        x_in = in_interval(x, left_x, right_x)
-        y_in = in_interval(y, left_y, right_y)
-        if x_in and y_in:
-            return i
-    return 0
-
-
-def in_interval(val, left, right):
-    return (left - 5 <= val < right + 5 or left + 5 >= val >= right - 5)
+def in_interval(val, left, right, th):
+    return (left - th <= val < right + th or left + th >= val >= right - th)
 
 
 def slice_of_spline(tck, start):
     Kx = tck[1][0]
     Ky = tck[1][1]
     knots = tck[0]
-    l = start + 3
+    l = start
     arr = np.linspace(knots[l],knots[l+1], 20)
     print(l)
     res_x = []
@@ -315,6 +321,7 @@ def slice_of_spline(tck, start):
         for i in range(3 + 1):
             buff_x[i] = Kx[i + l - 3]
             buff_y[i] = Ky[i + l - 3]
+        plt.plot(buff_x, buff_y, color="black")
         for j in range(1, 3 + 1):
             for i in reversed(range(l - 3 + j, l + 1)):
                 alpha = (point - knots[i]) / (knots[i + 1 + 3 - j] - knots[i])
@@ -325,6 +332,40 @@ def slice_of_spline(tck, start):
     return res_x, res_y
 
 
+def distance_to_spline(point, tck):
+    knots = sc.splev(tck[0], tck)
+    index = knots_interval(point, tck)
+    a = tck[0][index]
+    b = tck[0][index + 1]
+    eps = 0.001
+    dist_0 = 0
+    while True:
+        t_0 = b - (b - a) / 1.618
+        t_1 = a + (b - a) / 1.618
+        vals = sc.splev([t_0, t_1], tck)
+        val_t_0 = [vals[1][0], vals[0][0]]
+        val_t_1 = [vals[1][1], vals[0][1]]
+        dist_0 = distance(point, val_t_0)
+        dist_1 = distance(point, val_t_1)
+        if dist_0 >= dist_1:
+            a = t_0
+        else:
+            b = t_1
+        if b - a < eps:
+            break
+    if dist_0 > 1:
+        plt.scatter(point[1], point[0], marker='x', color='orange')
+        plt.plot([point[1], val_t_0[1]], [point[0], val_t_0[0]], color='blue')
+        #print(index)
+    return dist_0
+
+
+def MSE(pts, tck):
+    s = 0
+    for i in range(len(pts)):
+        dist = distance_to_spline(pts[i], tck)
+        s += dist ** 2
+    return math.sqrt(s) / len(pts)
 
 
 img = cv2.imread("x.png", 0)
@@ -336,6 +377,6 @@ edges = cv2.copyMakeBorder(edges, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=color)
 h, w = edges.shape
 cv2.imwrite('edges.png', edges)
 cntr = fetch_all(edges, 2)
-spline_approx(cntr[0], 0.4, 0.01)
+spline_approx(cntr[0], 0.1, 0.01)
 
 
