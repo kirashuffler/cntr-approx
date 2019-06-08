@@ -6,7 +6,6 @@ import sys
 import math
 import matplotlib.pyplot as plt
 import scipy.interpolate as sc
-from copy import deepcopy
 
 change_x = np.array([-1, 0, 1, 1, 1, 0, -1, -1])
 change_y = np.array([-1, -1, -1, 0, 1, 1, 1, 0])
@@ -241,26 +240,26 @@ def spline_approx(cntr, th_triangle, degree_th):
     #tck_copy = deepcopy(tck)
     knots = sc.splev(tck[0], tck)
     index = knots_interval(cntr[0][80], tck)
-    mse = MSE(cntr[0], tck)
+    #mse = MSE(cntr[0], tck)
     xi, yi = sc.splev(np.linspace(0, 1, len(original_x)), tck)
     s_mse = simple_MSE(cntr[0], [xi, yi])
-    print("MSE:", mse)
+    #print("MSE:", mse)
     print("Simple_MSE:", s_mse)
     #print("compression rate of dominant points to spline:", sys.getsizeof(dominant_pts) / sys.getsizeof(tck))
     # evaluate the spline fits for 1000 evenly spaced distance values
-
     #_, [ex, ey] = sc.splev(np.linspace(tck[0][start+3], tck[0][end+1], 20), tck_copy)
     #ex, ey = slice_of_spline(tck, start)
     plt.ylim(0, h)
     plt.xlim(0, w)
     #plt.scatter(knots[0], knots[1], marker='x',color='red', label=('knots'))
     #plt.scatter(test_pt[1], test_pt[0], marker='x', color='black', label=('test_pt'))
-    plt.scatter(x, y, marker='*',color='black', label=('Доминантные точки'+'(пороговое значение='+str(th_triangle)+')'))
-    plt.plot(x, y, color='black',linestyle='--', label=('Контур, построенный по доминантным точкам'+'(сжатие в '+str(round(relation))+' раз)'))
+    #plt.scatter(x, y, marker='x',color='black', label=('Доминантные точки'+'(пороговое значение='+str(th_triangle)+')'))
+    #plt.plot(x, y, color='black',linestyle='--', label=('Контур, построенный по доминантным точкам'+'(сжатие в '+str(round(relation))+' раз)'))
     #plt.plot(tck[1][0], tck[1][1], color='black')
     plt.plot(original_x, original_y, color='green', label=('Изначальный контур'))
     # ax.plot(tck[1][0], tck[1][1], "-or")
-    plt.plot(xi, yi,linestyle='--', color='purple', label=('B-сплайн степени '+str(degree)+'(thresh=')+str(degree_th)+')')
+    spline_comp_rate = sys.getsizeof(cntr[0]) / sys.getsizeof(tck)
+    plt.plot(xi, yi, linestyle='--', color='purple', label=('B-сплайн степени '+str(degree)+'(Сжатие в ')+str(round(spline_comp_rate))+' раз)')
     #plt.plot(ex, ey, color='red', label=('part'))
     plt.legend()
     plt.gca().invert_yaxis()
@@ -288,10 +287,6 @@ def knots_interval(point, tck):
         if (dist <= min and angle > 0.43) or vector_modul(vect0) <= 3 or vector_modul(vect1) <= 3:
             index = i
             min = dist
-    #print(pt)
-    #print(min)
-    #print([knots[0][index], knots[1][index]])
-    #plt.plot([knots[0][index], pt[0], knots[0][index+1],knots[0][index]], [knots[1][index], pt[1], knots[1][index+1],knots[1][index]])
     return index
 
 def unit_vector(vector):
@@ -357,10 +352,6 @@ def distance_to_spline(point, tck):
             b = t_1
         if b - a < eps:
             break
-    #if dist_0 > 1:
-    #    plt.scatter(point[1], point[0], marker='x', color='orange')
-    #    plt.plot([point[1], val_t_0[1]], [point[0], val_t_0[0]], color='blue')
-        #print(index)
     return dist_0
 
 
@@ -400,6 +391,6 @@ edges = cv2.copyMakeBorder(edges, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=color)
 h, w = edges.shape
 cv2.imwrite('edges.png', edges)
 cntr = fetch_all(edges, 2)
-spline_approx(cntr[0], 0.2, 0.01)
+spline_approx(cntr[0], 0, 0.01)
 
 
